@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>AutoSlice</RootNamespace>
+    <AssemblyName>AutoSlice</AssemblyName>
+    <Platforms>AnyCPU;x64</Platforms>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="pythonnet" Version="3.1.0" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <!-- C++ 引擎 downloader.exe 位置。可由构建命令行覆盖：-p:EngineDir=<绝对路径>，默认指向同仓库的 cpp_downloader 构建目录 -->
+    <EngineDir Condition="'$(EngineDir)'==''">$(MSBuildThisFileDirectory)..\..\cpp_downloader\build</EngineDir>
+  </PropertyGroup>
+
+  <!-- 每次 Build 把 C++ 引擎复制到输出目录（调试时 GUI 可直接运行；不打包 Python 以加快迭代） -->
+  <Target Name="CopyEngine" AfterTargets="Build" Condition="'$(TargetFramework)'=='net8.0-windows'">
+    <Copy SourceFiles="$(EngineDir)\downloader.exe" DestinationFolder="$(TargetDir)" SkipUnchangedFiles="true" />
+  </Target>
+
+  <!-- publish 阶段：复制引擎 + 打包嵌入式 Python 运行时 + hosts 脚本，产出完整发布目录（目标机器无需安装 Python/.NET） -->
+  <Target Name="PackEmbeddedRuntimePublish" AfterTargets="Publish" Condition="'$(TargetFramework)'=='net8.0-windows' AND '$(PublishDir)'!=''">
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)pack-runtime.ps1&quot; -TargetDir &quot;$(PublishDir.TrimEnd('\'))&quot; -EngineDir &quot;$(EngineDir)&quot; -PythonDir &quot;$(EmbeddedPythonDir)&quot;" />
+  </Target>
+
+</Project>
