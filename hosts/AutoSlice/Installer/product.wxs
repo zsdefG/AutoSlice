@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- AutoSlice 安装包产品定义（WiX 7，标准 WixUI_Mondo 全中文向导）
+     用法（util 与 UI 扩展需已注册：wix extension add WixToolset.Util.wixext / WixToolset.UI.wixext）：
+     wix build -ext WixToolset.Util.wixext -ext WixToolset.UI.wixext -arch x64 product.wxs components.wxs
+           -d "PublishDir=<发布目录>"
+           -d "LicensePath=<License.rtf 绝对路径>"
+           -d "IconPath=<AppIcon.ico 绝对路径>"
+           -d "UpgradeCode=<固定升级码>"
+           -o AutoSlice.msi
+     需先运行 gen-components.ps1 生成 components.wxs（PublishOutput 组件组）。
+     安装向导流程（WixUI_Mondo）：欢迎 -> 许可 -> 选择安装类型 -> 功能树/自定义安装位置 -> 确认 -> 完成。
+     桌面快捷方式为独立可选功能（CustomizeDlg 功能树可勾选/取消，MSI 原生机制，无需 SetFeatureLevel 事件）。
+     卸载清理：安装时把真实安装目录写入注册表，卸载时 RegistrySearch 取回 + util:RemoveFolderEx
+     递归删除整个目录树（连运行时生成的 __pycache__ 等未跟踪文件也清除）。
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <Package Name="AutoSlice 下载器"
+           Manufacturer="zsdefG"
+           Version="1.0.0"
+           UpgradeCode="$(var.UpgradeCode)"
+           Scope="perUser"
+           Language="2052"
+           Codepage="936">
+    <!-- 升级策略：允许覆盖旧版，不支持降级 -->
+    <MajorUpgrade DowngradeErrorMessage="不允许降级安装，请先卸载旧版本。" />
+
+    <!-- 压缩进单个 CAB，保持 MSI 单文件 -->
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <!-- 标准安装向导（全中文）：欢迎 -> 许可 -> 安装类型 -> 功能树/目录 -> 确认 -> 完成 -->
+    <ui:WixUI Id="WixUI_Mondo" />
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+    <WixVariable Id="WixUILicenseRtf" Value="$(var.LicensePath)" />
+
+    <!-- ARP（设置->应用->已安装的应用）注册信息：支持在"设置"中直接卸载 -->
+    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+    <Property Id="ARPCOMMENTS" Value="AutoSlice 下载器 - 全内嵌版（含 .NET 运行时与嵌入式 Python）" />
+    <Property Id="ARPNOREPAIR" Value="1" />
+    <Property Id="ARPNOMODIFY" Value="1" />
+
+    <!-- 卸载残留修复：安装时把真实路径写入注册表，卸载时由 RegistrySearch 取回
+         （INSTALLFOLDER 会在卸载时被重算回默认路径，原生删除动作会指向错误目录），
+         util:RemoveFolderEx 兜底递归删除整个目录树，两者 Key/Name 必须一致。 -->
+    <Property Id="INSTALLFOLDER" Secure="yes">
+      <RegistrySearch Id="RegSearch_InstallDir"
+                      Root="HKCU"
+                      Key="Software\zsdefG\AutoSlice"
+                      Name="InstallPath"
+                      Type="raw" />
+    </Property>
+    <Property Id="AS_INSTALLPATH">
+      <RegistrySearch Id="RegSearch_InstallPath"
+                      Root="HKCU"
+                      Key="Software\zsdefG\AutoSlice"
+                      Name="InstallPath"
+                      Type="raw" />
+    </Property>
+
+    <!-- 开始菜单快捷方式（常驻）：perUser 包中 ProgramMenuFolder 解析为当前用户目录，必然可写 -->
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="AppMenuDir" Name="AutoSlice">
+        <Component Id="C_StartMenuShortcut" Guid="{3EDA6B52-9A6F-4D80-B7C8-5A1E9C4D6F32}">
+          <Shortcut Id="sc_StartMenu"
+                    Advertise="no"
+                    Directory="AppMenuDir"
+                    Name="AutoSlice 下载器"
+                    Target="[INSTALLFOLDER]AutoSlice.exe"
+                    WorkingDirectory="INSTALLFOLDER"
+                    Icon="AppIcon" />
+          <RemoveFolder Id="rm_AppMenuDir" On="uninstall" />
+          <RegistryValue Root="HKCU" Key="Software\WorkBuddy\AutoSlice"
+                         Name="installed" Type="integer" Value="1" KeyPath="yes" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <!-- 桌面快捷方式：独立可选功能，安装向导"功能选择"页可勾选/取消（MSI 原生 Features 机制） -->
+    <StandardDirectory Id="DesktopFolder">
+      <Component Id="C_DesktopShortcut" Guid="{8B1A6C93-2D4E-4F7A-9C51-6E2B0D7A4F83}">
+        <Shortcut Id="sc_Desktop"
+                  Advertise="no"
+                  Directory="DesktopFolder"
+                  Name="AutoSlice 下载器"
+                  Target="[INSTALLFOLDER]AutoSlice.exe"
+                  WorkingDirectory="INSTALLFOLDER"
+                  Icon="AppIcon" />
+        <RegistryValue Root="HKCU" Key="Software\WorkBuddy\AutoSlice"
+                       Name="desktop" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+
+    <!-- 主目录（必装）：perUser 安装到用户目录（%LOCALAPPDATA%\Programs），免管理员权限 -->
+    <StandardDirectory Id="PerUserProgramFilesFolder">
+      <Directory Id="INSTALLFOLDER" Name="AutoSlice">
+        <!-- 卸载残留修复组件：写真实安装路径 + RemoveFolderEx 递归清理 -->
+        <Component Id="C_InstallFolder" Guid="{A7C2E951-4B3D-4E8F-9D6A-1C5B0E8F2A46}">
+          <RemoveFolder Id="rm_InstallFolder" Directory="INSTALLFOLDER" On="uninstall" />
+          <RegistryValue Root="HKCU" Key="Software\zsdefG\AutoSlice"
+                         Name="InstallPath" Type="string" Value="[INSTALLFOLDER]" />
+          <util:RemoveFolderEx Id="RemoveInstallDirOnUninstall"
+                               On="uninstall"
+                               Property="AS_INSTALLPATH" />
+          <RegistryValue Root="HKCU" Key="Software\WorkBuddy\AutoSlice\InstallFolder"
+                         Name="installed" Type="integer" Value="1" KeyPath="yes" />
+        </Component>
+      </Directory>
+      <Component Id="C_PerUserProgramsFolder" Guid="{B6D0F3A7-8C2B-4A9E-A6D5-3F7C1B2E4491}">
+        <RemoveFolder Id="rm_PerUserPrograms" Directory="PerUserProgramFilesFolder" On="uninstall" />
+        <RegistryValue Root="HKCU" Key="Software\WorkBuddy\AutoSlice\ProgramsFolder"
+                       Name="installed" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+
+    <Feature Id="MainFeature" Title="AutoSlice 下载器" Description="程序文件（含 .NET 运行时、C++ 下载引擎与嵌入式 Python 运行时）" Level="1">
+      <ComponentGroupRef Id="PublishOutput" />
+      <ComponentRef Id="C_InstallFolder" />
+      <ComponentRef Id="C_PerUserProgramsFolder" />
+    </Feature>
+
+    <!-- 可选功能：开始菜单快捷方式（常驻默认勾选） -->
+    <Feature Id="ShortcutsFeature" Title="开始菜单快捷方式" Description="在开始菜单创建 AutoSlice 下载器快捷方式" Level="1">
+      <ComponentRef Id="C_StartMenuShortcut" />
+    </Feature>
+
+    <!-- 可选功能：桌面快捷方式（安装向导功能选择页可取消） -->
+    <Feature Id="DesktopShortcutFeature" Title="桌面快捷方式" Description="在桌面创建 AutoSlice 下载器快捷方式" Level="1">
+      <ComponentRef Id="C_DesktopShortcut" />
+    </Feature>
+
+    <Icon Id="AppIcon" SourceFile="$(var.IconPath)" />
+  </Package>
+</Wix>
